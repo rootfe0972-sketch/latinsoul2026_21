@@ -312,7 +312,7 @@ function calcQuote(cfg,picks,manualIds){
     var pre=0;items.forEach(function(c){if(!skip[c.key])pre+=(c.preDiscount||0);});
     if(pre>0)lines.unshift({id:preDef.id,label:preDef.label,amount:pre,freeKey:null});}
   var dt=lines.reduce(function(s,l){return s+l.amount;},0);
-  return{ok:true,items:items.map(function(c){return{key:c.key,genre:c.genre,name:c.name,
+  return{ok:true,items:items.map(function(c){return{key:c.key,genre:c.genre,name:c.name,display:c.display,
     fee:c.fee,timeLabel:c.timeLabel};}),subtotal:subtotal,lines:lines,discountTotal:dt,
     total:Math.max(0,subtotal-dt),appliedIds:lines.map(function(l){return l.id;})};}
 
@@ -326,6 +326,7 @@ function slots(){var m={},o=[];
     if(!m[k]){m[k]={label:c.timeLabel,start:c.start,list:[]};o.push(k);}m[k].list.push(c);});
   return o.map(function(k){return m[k];}).sort(function(a,b){return (a.start||0)-(b.start||0);});}
 function seatOf(k){return (CFG.seats&&CFG.seats[k])||null;}
+function dsp(c){return (c&&c.display)?c.display:((c?c.genre:'')+' '+(c?c.name:'')).trim();}
 function manualOn(){return Object.keys(S.manual).filter(function(k){return S.manual[k];});}
 function h2(n,t){return '<h2 class="sec">'+(n?'<span class="n">'+n+'</span>':'')+
   '<span class="t">'+esc(t)+'</span></h2>';}
@@ -357,7 +358,7 @@ function viewGate(t,d){
 function classTable(){var h='';
   slots().forEach(function(sl){h+='<div class="slot"><div class="st">'+esc(sl.label)+'</div>';
     sl.list.forEach(function(c){h+='<div class="opt" style="cursor:default"><span class="body">'+
-      '<span class="nm">'+esc(c.genre+' '+c.name)+'</span></span>'+
+      '<span class="nm">'+esc(dsp(c))+'</span></span>'+
       '<span class="fee">'+won(c.fee)+'</span></div>';});h+='</div>';});
   return h;}
 
@@ -413,7 +414,7 @@ function classPicker(edit){
         (seat&&seat.capacity!=null&&seat.left<=5)?'<span class="tag left">'+seat.left+'자리</span>':'';
       h+='<label class="opt'+(on?' on':'')+(off?' off':'')+'">'+
         '<input type="checkbox" data-key="'+esc(c.key)+'"'+(on?' checked':'')+(off?' disabled':'')+'>'+
-        '<span class="body"><span class="nm">'+esc(c.genre+' '+c.name)+tag+'</span>'+
+        '<span class="body"><span class="nm">'+esc(dsp(c))+tag+'</span>'+
         '<span class="meta">'+esc(c.timeLabel)+'</span></span>'+
         '<span class="fee">'+won(c.fee)+'</span></label>';
     });
@@ -447,7 +448,7 @@ function fld(id,label,type,ph,val,why){
 function quoteBox(q){
   if(!q.ok)return '<div class="box"><p class="hint" style="margin:0">'+esc(q.error)+'</p></div>';
   var h='<div class="box">';
-  q.items.forEach(function(c){h+='<div class="line"><span>'+esc(c.genre+' '+c.name)+
+  q.items.forEach(function(c){h+='<div class="line"><span>'+esc(dsp(c))+
     '</span><b>'+won(c.fee)+'</b></div>';});
   h+='<div class="hr"></div><div class="line"><span>수업 합계</span><b>'+won(q.subtotal)+'</b></div>';
   q.lines.forEach(function(l){h+='<div class="line disc"><span>'+esc(l.label)+
@@ -459,7 +460,7 @@ function quoteBox(q){
 }
 function viewDock(){
   var q=calcQuote(CFG,S.picks,manualOn());
-  var label=q.ok?q.items.map(function(c){return c.genre+' '+c.name.split('/')[0];}).join(' · ')
+  var label=q.ok?q.items.map(function(c){return dsp(c).split('/')[0];}).join(' · ')
                 :'수업을 선택해주세요';
   return '<div class="dock"><div class="in"><div class="info">'+
     '<div class="cnt">'+esc(label)+'</div>'+
@@ -488,7 +489,7 @@ function viewFound(){
   h+='<div class="line"><span>상태</span><b>'+esc(o.status)+(o.paid?' · 입금확인':'')+'</b></div>';
   h+='<div class="line"><span>연락처</span><b>'+esc(o.phoneMasked)+'</b></div>';
   h+='<div class="hr"></div>';
-  o.items.forEach(function(c){h+='<div class="line"><span>'+esc(c.genre+' '+c.name)+
+  o.items.forEach(function(c){h+='<div class="line"><span>'+esc(dsp(c))+
     '</span><b>'+won(c.fee)+'</b></div>';});
   h+='<div class="hr"></div><div class="line"><span>수업 합계</span><b>'+won(o.subtotal)+'</b></div>';
   if(o.discountTotal)h+='<div class="line disc"><span>할인</span><b>-'+won(o.discountTotal)+'</b></div>';
@@ -523,7 +524,7 @@ function viewDone(){
     '<div class="no">'+esc(d.orderNo)+'</div><div>'+
     '<button class="copy" id="btnCopy">신청번호 복사</button></div>';
   h+='<div class="box" style="text-align:left">';
-  d.quote.items.forEach(function(c){h+='<div class="line"><span>'+esc(c.genre+' '+c.name)+
+  d.quote.items.forEach(function(c){h+='<div class="line"><span>'+esc(dsp(c))+
     '</span><b>'+won(c.fee)+'</b></div>';});
   h+='<div class="hr"></div>';
   if(d.quote.discountTotal)h+='<div class="line disc"><span>할인 합계</span><b>-'+
