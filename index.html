@@ -53,7 +53,19 @@ h2.sec .t{background:linear-gradient(to top,var(--y) 0 34%,transparent 34%);padd
 h2.sec:first-of-type{margin-top:4px;}
 .hint{font-size:13px;color:var(--sub);margin:3px 0 10px;}
 
-.slot{margin-bottom:12px;}
+.ttbox{border:1.5px solid var(--line);border-radius:12px;overflow:hidden;background:var(--surface);margin:2px 0 12px;}
+.ttscroll{overflow-x:auto;-webkit-overflow-scrolling:touch;}
+.tt{width:100%;border-collapse:collapse;font-size:12.5px;}
+.tt th,.tt td{border-bottom:1px solid var(--line);border-right:1px solid var(--line);
+  padding:8px 6px;text-align:center;vertical-align:middle;}
+.tt tr:last-child th,.tt tr:last-child td{border-bottom:none;}
+.tt th:last-child,.tt td:last-child{border-right:none;}
+.tt thead th{background:var(--ink);color:var(--y);font-weight:900;font-size:12px;}
+.tt th.tm{background:var(--y-l);font-weight:800;white-space:nowrap;font-size:11.5px;color:var(--ink);}
+.tt .cell{display:block;font-weight:700;line-height:1.35;padding:1px 0;}
+.tt .none{color:var(--dim);}
+.ttcap{font-size:12px;color:var(--sub);text-align:center;padding:7px 6px;background:var(--y-l);
+  font-weight:700;}.slot{margin-bottom:12px;}
 .slot .st{display:inline-block;font-size:11.5px;font-weight:900;color:var(--ink);
   background:var(--y);padding:2px 9px;border-radius:5px;margin:0 0 7px 1px;letter-spacing:.02em;}
 .opt{display:flex;align-items:center;gap:12px;background:var(--surface);border:1.5px solid var(--line);
@@ -524,6 +536,44 @@ function slots(){var m={},o=[];
   CFG.classes.forEach(function(c){var k=(c.day||'')+' '+c.start;
     if(!m[k]){m[k]={label:c.timeLabel,start:c.start,list:[]};o.push(k);}m[k].list.push(c);});
   return o.map(function(k){return m[k];}).sort(function(a,b){return (a.start||0)-(b.start||0);});}
+/* 「클래스」 시트에서 주간 시간표를 자동으로 만든다 */
+function shortName(c){
+  var n=dsp(c);
+  if(n.indexOf(c.genre+' ')===0)n=n.slice(c.genre.length+1);
+  return n.split('/')[0];
+}
+function timetable(){
+  var genres=[],slots={},order=[],days={};
+  CFG.classes.forEach(function(c){
+    if(genres.indexOf(c.genre)<0)genres.push(c.genre);
+    days[c.day||'']=1;
+    var k=(c.day||'')+'|'+c.start;
+    if(!slots[k]){slots[k]={start:c.start,label:c.timeLabel,by:{}};order.push(k);}
+    (slots[k].by[c.genre]=slots[k].by[c.genre]||[]).push(c);
+  });
+  var dayList=Object.keys(days).filter(Boolean);
+  var oneDay=(dayList.length===1)?dayList[0]:'';
+  order.sort(function(a,b){return (slots[a].start||0)-(slots[b].start||0);});
+
+  var h='<div class="ttbox">';
+  if(oneDay)h+='<div class="ttcap">매주 '+esc(oneDay)+'요일</div>';
+  h+='<div class="ttscroll"><table class="tt"><thead><tr><th>시간</th>';
+  genres.forEach(function(g){h+='<th>'+esc(g)+'</th>';});
+  h+='</tr></thead><tbody>';
+  order.forEach(function(k){
+    var s=slots[k],lab=s.label;
+    if(oneDay&&lab.indexOf(oneDay+' ')===0)lab=lab.slice(oneDay.length+1);
+    h+='<tr><th class="tm">'+esc(lab)+'</th>';
+    genres.forEach(function(g){
+      var list=s.by[g]||[];
+      h+='<td>'+(list.length
+        ? list.map(function(c){return '<span class="cell">'+esc(shortName(c))+'</span>';}).join('')
+        : '<span class="none">–</span>')+'</td>';
+    });
+    h+='</tr>';
+  });
+  return h+'</tbody></table></div></div>';
+}
 function seatOf(k){return (CFG.seats&&CFG.seats[k])||null;}
 function dsp(c){return (c&&c.display)?c.display:((c?c.genre:'')+' '+(c?c.name:'')).trim();}
 function bq(){return calcQuote(CFG,S.picks,manualOn(),digits(S.editing?S.lookBirth:S.birth));}
@@ -553,7 +603,7 @@ function render(){
 }
 function viewGate(t,d){
   return '<div class="box">'+h2('',t)+'<p class="hint">'+d+'</p></div>'+
-    h2('','수업과 강습비')+classTable();
+    h2('','수업 시간표')+timetable()+h2('','강습비')+classTable();
 }
 function classTable(){var h='';
   slots().forEach(function(sl){h+='<div class="slot"><div class="st">'+esc(sl.label)+'</div>';
@@ -566,6 +616,7 @@ function viewApply(){
   var h='';
   h+=h2(1,'수업 선택');
   h+='<p class="hint">최대 '+(CFG.maxSubjects||3)+'개까지 · 시간이 겹치는 수업은 자동으로 잠깁니다.</p>';
+  h+=timetable();
   h+=classPicker(false);
 
   h+=h2(2,'신청자 정보');
@@ -587,6 +638,7 @@ function viewApply(){
   var ml=CFG.discounts.filter(function(d){return !d.auto;});
   if(ml.length){h+=h2(3,'해당되는 할인');
     h+='<p class="hint">해당하시는 것만 켜주세요. 운영진이 확인합니다.</p>'+discPicker(ml);}
+  if(CFG.discountNote)h+='<div class="note">'+esc(CFG.discountNote)+'</div>';
 
   var q=bq();
   h+=h2(4,'금액')+quoteBox(q);
@@ -797,6 +849,7 @@ function fmt(id,key,f){var el=$(id);if(!el)return;
     if(p===before.length)el.setSelectionRange(el.value.length,el.value.length);};}
 function resetAll(){S.done=null;S.found=null;S.editing=false;S.tab='apply';
   S.picks=[];S.manual={};S.proof='';S.agreed=false;S.error='';S.fieldErr={};
+  S.nickname='';S.realname='';S.phone='';S.birth='';S.gender='';S.payer='';
   S.lookErr='';S.lookBirth='';S.payerTouched=false;
   loadConfig().then(function(d){if(d&&d.ok){CFG=d.config;head();render();}}).catch(function(){render();});}
 
