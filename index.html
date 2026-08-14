@@ -411,7 +411,12 @@ function calcQuote(cfg, picks, manualIds, birth) {
     var mine = items.filter(function (c) { return hitsClass(d.targets, c); });
     if (!mine.length) return;
 
-    if (d.mode === '잔액정률') { stage2.push({ def: d, items: mine }); return; }
+    if (d.mode === '잔액정률' || d.mode === '잔액정률_전체') {
+      // 잔액정률      : 대상 과목의 남은 금액에만
+      // 잔액정률_전체 : 대상 과목을 하나라도 신청했으면 전체 남은 금액에
+      stage2.push({ def: d, items: (d.mode === '잔액정률_전체') ? items : mine });
+      return;
+    }
 
     var per = {}, cheapest;
 
