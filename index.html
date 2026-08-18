@@ -413,7 +413,7 @@ function calcQuote(cfg, picks, manualIds, birth, perClass) {
     push('패키지', bestPkg.label, spread(bestPkg.discount, pkgItems), { pkgKeys: bestPkg.need });
   }
 
-  var stage2 = [];   // 잔액정률은 따로 모은다
+  var stage2 = [], freeDefs = [];   // 잔액정률은 따로 모은다
   (cfg.discounts || []).forEach(function (d) {
     var picked = (d.mode === '과목선택정률') ? (pc[d.id] || []) : null;
     var on = d.auto || manual[d.id] || (picked && picked.length > 0);
@@ -451,13 +451,11 @@ function calcQuote(cfg, picks, manualIds, birth, perClass) {
       });
 
     } else if (d.mode === '무료과목_양장르비기너' || d.mode === '무료과목_비기너1') {
+      // 1+1 은 다른 할인을 다 뺀 뒤 「남은 금액」에서 한 과목을 무료로 만든다.
+      // 그래야 재수강가(50%)로 내려간 금액에도 1+1 이 얹힌다.
       if (d.mode === '무료과목_양장르비기너' && !bothGenreBeginner) return;
-      cheapest = mine.filter(function (c) {
-        return c.beginner && !usedFree[c.key];
-      }).slice().sort(function (x, y) { return x.fee - y.fee; })[0];
-      if (!cheapest) return;
-      per[cheapest.key] = cheapest.fee;
-      usedFree[cheapest.key] = true;
+      freeDefs.push({ def: d, items: mine });
+      return;
     }
 
     push(d.id, d.label, per, { def: d, freeKey: (cheapest ? cheapest.key : null) });
@@ -518,6 +516,23 @@ function calcQuote(cfg, picks, manualIds, birth, perClass) {
   items.forEach(function (c) { rest[c.key] = c.fee; });
   lines.forEach(function (l) { for (var k in l.per) rest[k] -= l.per[k]; });
   items.forEach(function (c) { if (rest[c.key] < 0) rest[c.key] = 0; });
+
+  /* --- 1+1 : 남은 금액에서 한 과목을 통째로 빼준다 --- */
+  freeDefs.forEach(function (fd) {
+    var blocked = (fd.def.exclusive || []).some(function (ex) {
+      return ex.scope !== '과목' && byId[ex.id] && !dead[ex.id];
+    });
+    if (blocked) return;                       // 중복 불가인 할인이 이미 붙어 있으면 안 준다
+    var target = fd.items.filter(function (c) {
+      return c.beginner && !usedFree[c.key] && rest[c.key] > 0;
+    }).slice().sort(function (x, y) { return rest[y.key] - rest[x.key]; })[0];
+    if (!target) return;                       // 남은 금액이 가장 큰 과목을 무료로 (회원에게 유리하게)
+    var amt = rest[target.key], one = {};
+    one[target.key] = amt;
+    usedFree[target.key] = true;
+    rest[target.key] = 0;
+    lines.push({ id: fd.def.id, label: fd.def.label, amount: amt, per: one, stage: 1 });
+  });
 
   /* --- 2단계 : 잔액정률 --- */
   stage2.forEach(function (s) {
