@@ -383,12 +383,7 @@ function calcQuote(cfg, picks, manualIds, birth, perClass) {
   /* --- 1단계 할인 후보 --- */
   /* 각 후보는 과목별 배분액(per)을 갖는다. 2단계에서 과목별 잔액을 알아야 하기 때문. */
   var pc = perClass || {};
-  var locked = {};
-  (cfg.discounts || []).forEach(function (d) {
-    if (d.mode !== '과목선택정률') return;
-    (pc[d.id] || []).forEach(function (k) { locked[k] = true; });
-  });
-  var usedFree = {};
+  var usedFree = {};   // 이미 무료가 된 과목 — 다른 1+1 이 같은 과목을 또 잡지 않게
 
   var cand = [];
   function push(id, label, per, extra) {
@@ -458,7 +453,7 @@ function calcQuote(cfg, picks, manualIds, birth, perClass) {
     } else if (d.mode === '무료과목_양장르비기너' || d.mode === '무료과목_비기너1') {
       if (d.mode === '무료과목_양장르비기너' && !bothGenreBeginner) return;
       cheapest = mine.filter(function (c) {
-        return c.beginner && !usedFree[c.key] && !locked[c.key];
+        return c.beginner && !usedFree[c.key];
       }).slice().sort(function (x, y) { return x.fee - y.fee; })[0];
       if (!cheapest) return;
       per[cheapest.key] = cheapest.fee;
