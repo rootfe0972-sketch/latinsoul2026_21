@@ -80,6 +80,12 @@ h2.sec:first-of-type{margin-top:4px;}
 .opt.on{border-color:var(--ink);background:var(--y-l);}
 .opt.off{opacity:.42;cursor:not-allowed;}
 .opt.off input{cursor:not-allowed;}
+.perbox{border:1.5px solid var(--line);border-radius:12px;padding:11px 12px 4px;margin-bottom:7px;background:var(--surface);}
+.pertit{font-size:15px;font-weight:800;margin-bottom:2px;}
+.permeta{font-size:12.5px;color:var(--sub);margin-bottom:8px;}
+.opt.sm{padding:9px 11px;margin-bottom:7px;}
+.opt.sm .nm{font-size:14px;font-weight:700;}
+.opt.sm .fee{font-size:14px;color:var(--ok);}
 .tag{display:inline-block;font-size:10.5px;font-weight:900;padding:2px 7px;border-radius:5px;
   margin-left:6px;vertical-align:1px;background:var(--y-l2);color:var(--ink-2);}
 .tag.full{background:var(--badbg);color:var(--bad);}
@@ -196,7 +202,7 @@ var API = "https://script.google.com/macros/s/AKfycbwzV2yVfWSePu8rFmvFERaPbVFBah
 var CFG=null, SKEW=0;
 var S={tab:'apply',picks:[],manual:{},proof:'',nickname:'',realname:'',phone:'',birth:'',
   gender:'',payer:'',payerTouched:false,agreed:false,busy:false,error:'',fieldErr:{},
-  done:null,found:null,lookPhone:'',lookBirth:'',lookErr:'',editing:false};
+  perClass:{},done:null,found:null,lookPhone:'',lookBirth:'',lookErr:'',editing:false};
 
 function $(id){return document.getElementById(id);}
 function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;')
@@ -328,7 +334,7 @@ function meetsEligible(el, birth) {
  * @param manualIds 회원이 켠 할인 id 배열
  * @param birth    생년월일 8자리 (자격조건 판정용, 없으면 '')
  */
-function calcQuote(cfg, picks, manualIds, birth) {
+function calcQuote(cfg, picks, manualIds, birth, perClass) {
   var byKey = {};
   cfg.classes.forEach(function (c) { byKey[c.key] = c; });
 
@@ -376,6 +382,14 @@ function calcQuote(cfg, picks, manualIds, birth) {
 
   /* --- 1단계 할인 후보 --- */
   /* 각 후보는 과목별 배분액(per)을 갖는다. 2단계에서 과목별 잔액을 알아야 하기 때문. */
+  var pc = perClass || {};
+  var locked = {};
+  (cfg.discounts || []).forEach(function (d) {
+    if (d.mode !== '과목선택정률') return;
+    (pc[d.id] || []).forEach(function (k) { locked[k] = true; });
+  });
+  var usedFree = {};
+
   var cand = [];
   function push(id, label, per, extra) {
     var amount = 0;
@@ -406,7 +420,9 @@ function calcQuote(cfg, picks, manualIds, birth) {
 
   var stage2 = [];   // 잔액정률은 따로 모은다
   (cfg.discounts || []).forEach(function (d) {
-    if (!(d.auto || manual[d.id])) return;
+    var picked = (d.mode === '과목선택정률') ? (pc[d.id] || []) : null;
+    var on = d.auto || manual[d.id] || (picked && picked.length > 0);
+    if (!on) return;
     if (!meetsEligible(d.eligible, birth)) return;
 
     var mine = items.filter(function (c) { return hitsClass(d.targets, c); });
@@ -434,18 +450,19 @@ function calcQuote(cfg, picks, manualIds, birth) {
     } else if (d.mode === '과목당정률') {
       mine.forEach(function (c) { per[c.key] = Math.round(c.fee * d.value / 100); });
 
-    } else if (d.mode === '무료과목_양장르비기너') {
-      if (!bothGenreBeginner) return;
-      cheapest = mine.filter(function (c) { return c.beginner; })
-        .slice().sort(function (x, y) { return x.fee - y.fee; })[0];
-      if (!cheapest) return;
-      per[cheapest.key] = cheapest.fee;
+    } else if (d.mode === '과목선택정률') {
+      mine.forEach(function (c) {
+        if (picked.indexOf(c.key) >= 0) per[c.key] = Math.round(c.fee * d.value / 100);
+      });
 
-    } else if (d.mode === '무료과목_비기너1') {
-      cheapest = mine.filter(function (c) { return c.beginner; })
-        .slice().sort(function (x, y) { return x.fee - y.fee; })[0];
+    } else if (d.mode === '무료과목_양장르비기너' || d.mode === '무료과목_비기너1') {
+      if (d.mode === '무료과목_양장르비기너' && !bothGenreBeginner) return;
+      cheapest = mine.filter(function (c) {
+        return c.beginner && !usedFree[c.key] && !locked[c.key];
+      }).slice().sort(function (x, y) { return x.fee - y.fee; })[0];
       if (!cheapest) return;
       per[cheapest.key] = cheapest.fee;
+      usedFree[cheapest.key] = true;
     }
 
     push(d.id, d.label, per, { def: d, freeKey: (cheapest ? cheapest.key : null) });
@@ -509,8 +526,16 @@ function calcQuote(cfg, picks, manualIds, birth) {
 
   /* --- 2단계 : 잔액정률 --- */
   stage2.forEach(function (s) {
+    var skip2 = {};
+    (s.def.exclusive || []).forEach(function (ex) {
+      if (ex.scope !== '과목') return;
+      var other = byId[ex.id];
+      if (!other || dead[ex.id]) return;
+      for (var k in other.per) if (other.per[k] > 0) skip2[k] = true;
+    });
     var per = {}, amount = 0;
     s.items.forEach(function (c) {
+      if (skip2[c.key]) return;
       var v = Math.round(rest[c.key] * s.def.value / 100);
       if (v > 0) { per[c.key] = v; amount += v; }
     });
@@ -599,7 +624,13 @@ function metaOf(c){
 }
 function seatOf(k){return (CFG.seats&&CFG.seats[k])||null;}
 function dsp(c){return (c&&c.display)?c.display:((c?c.genre:'')+' '+(c?c.name:'')).trim();}
-function bq(){return calcQuote(CFG,S.picks,manualOn(),digits(S.editing?S.lookBirth:S.birth));}
+function bq(){return calcQuote(CFG,S.picks,manualOn(),digits(S.editing?S.lookBirth:S.birth),S.perClass);}
+function syncPerClass(){
+  Object.keys(S.perClass).forEach(function(id){
+    S.perClass[id]=(S.perClass[id]||[]).filter(function(k){return S.picks.indexOf(k)>=0;});
+    if(!S.perClass[id].length)delete S.perClass[id];
+  });
+}
 function manualOn(){return Object.keys(S.manual).filter(function(k){return S.manual[k];});}
 function h2(n,t){return '<h2 class="sec">'+(n?'<span class="n">'+n+'</span>':'')+
   '<span class="t">'+esc(t)+'</span></h2>';}
@@ -706,13 +737,38 @@ function classPicker(edit){
 }
 function discPicker(ml){
   var h='';
-  ml.forEach(function(d){var on=!!S.manual[d.id];
+  ml.forEach(function(d){
+    if(d.mode==='과목선택정률'){
+      var target=S.picks.map(function(k){
+        return CFG.classes.filter(function(x){return x.key===k;})[0];
+      }).filter(function(c){return c&&hitsClass(d.targets,c);});
+      if(!target.length)return;             // 해당되는 수업을 안 골랐으면 안 보여준다
+      var sel=S.perClass[d.id]||[];
+      h+='<div class="perbox"><div class="pertit">'+esc(d.label)+
+         (d.needProof?'<span class="tag">확인 필요</span>':'')+'</div>'+
+         (d.note?'<div class="permeta">'+esc(d.note)+'</div>':'');
+      target.forEach(function(c){
+        var on=sel.indexOf(c.key)>=0;
+        h+='<label class="opt sm'+(on?' on':'')+'">'+
+          '<input type="checkbox" data-pc="'+esc(d.id)+'" data-pck="'+esc(c.key)+'"'+
+          (on?' checked':'')+'>'+
+          '<span class="body"><span class="nm">'+esc(dsp(c))+'</span></span>'+
+          '<span class="fee">-'+won(Math.round(c.fee*d.value/100))+'</span></label>';
+      });
+      h+='</div>';
+      return;
+    }
+    var on=!!S.manual[d.id];
     h+='<label class="opt'+(on?' on':'')+'">'+
       '<input type="checkbox" data-disc="'+esc(d.id)+'"'+(on?' checked':'')+'>'+
       '<span class="body"><span class="nm">'+esc(d.label)+
       (d.needProof?'<span class="tag">확인 필요</span>':'')+'</span>'+
-      (d.note?'<span class="meta">'+esc(d.note)+'</span>':'')+'</span></label>';});
-  var need=CFG.discounts.some(function(d){return d.needProof&&S.manual[d.id];});
+      (d.note?'<span class="meta">'+esc(d.note)+'</span>':'')+'</span></label>';
+  });
+  var need=CFG.discounts.some(function(d){
+    if(d.mode==='과목선택정률')return d.needProof&&(S.perClass[d.id]||[]).length>0;
+    return d.needProof&&S.manual[d.id];
+  });
   if(need)h+='<label class="f" for="fProof">확인할 내용<span class="req">*</span>'+
     '<span class="why">운영진이 확인할 수 있게 적어주세요</span></label>'+
     '<textarea id="fProof" placeholder="예) 자기소개서 링크 / 수업후기 링크 / 카페 가입인사 글 링크 / 함께 신청하는 분 닉네임">'+
@@ -837,9 +893,16 @@ function bind(){
   document.querySelectorAll('input[data-key]').forEach(function(el){
     el.onchange=function(){var k=el.dataset.key,i=S.picks.indexOf(k);
       if(el.checked&&i<0)S.picks.push(k); if(!el.checked&&i>=0)S.picks.splice(i,1);
-      S.error='';render();};});
+      syncPerClass(); S.error='';render();};});
   document.querySelectorAll('input[data-disc]').forEach(function(el){
     el.onchange=function(){S.manual[el.dataset.disc]=el.checked;S.error='';render();};});
+  document.querySelectorAll('input[data-pc]').forEach(function(el){
+    el.onchange=function(){
+      var id=el.dataset.pc,k=el.dataset.pck;
+      var arr=S.perClass[id]||[];var i=arr.indexOf(k);
+      if(el.checked&&i<0)arr.push(k); if(!el.checked&&i>=0)arr.splice(i,1);
+      if(arr.length)S.perClass[id]=arr; else delete S.perClass[id];
+      S.error='';render();};});
   keep('fNick','nickname'); keep('fProof','proof');
   var nm=$('fName'); if(nm)nm.oninput=function(){S.realname=nm.value;
     if(!S.payerTouched){S.payer=nm.value;var p=$('fPayer');if(p)p.value=nm.value;}};
@@ -852,6 +915,7 @@ function bind(){
     ag.closest('.agree').classList.toggle('on',ag.checked);};
   on('btnApply',doApply); on('btnLook',doLookup); on('btnSaveEdit',doUpdate); on('btnCancel',doCancel);
   on('btnEdit',function(){S.editing=true;S.picks=S.found.picks.slice();S.manual={};
+    S.perClass=JSON.parse(JSON.stringify(S.found.perClass||{}));
     S.found.discounts.forEach(function(id){S.manual[id]=true;});
     S.proof=S.found.proof||'';S.lookErr='';render();});
   on('btnCancelEdit',function(){S.editing=false;S.lookErr='';render();});
@@ -872,7 +936,7 @@ function fmt(id,key,f){var el=$(id);if(!el)return;
     el.value=f(el.value);S[key]=el.value;
     if(p===before.length)el.setSelectionRange(el.value.length,el.value.length);};}
 function resetAll(){S.done=null;S.found=null;S.editing=false;S.tab='apply';
-  S.picks=[];S.manual={};S.proof='';S.agreed=false;S.error='';S.fieldErr={};
+  S.picks=[];S.manual={};S.perClass={};S.proof='';S.agreed=false;S.error='';S.fieldErr={};
   S.nickname='';S.realname='';S.phone='';S.birth='';S.gender='';S.payer='';
   S.lookErr='';S.lookBirth='';S.payerTouched=false;
   loadConfig().then(function(d){if(d&&d.ok){CFG=d.config;head();render();}}).catch(function(){render();});}
@@ -903,7 +967,7 @@ function doApply(){
   S.busy=true;S.error='';render();
   post({action:'apply',reqId:reqId,nickname:str(S.nickname),realname:str(S.realname),
     phone:digits(S.phone),birth:digits(S.birth),gender:S.gender,payer:str(S.payer),agreed:true,
-    picks:S.picks,discounts:manualOn(),proof:str(S.proof),clientTotal:q.total})
+    picks:S.picks,discounts:manualOn(),perClass:S.perClass,proof:str(S.proof),clientTotal:q.total})
   .then(function(res){S.busy=false;
     if(res&&res.ok)finish(res);
     else{S.error=(res&&res.error)||'신청하지 못했습니다. 다시 시도해주세요.';render();}})
@@ -936,7 +1000,7 @@ function doUpdate(){
   if(!q.ok){S.lookErr=q.error;render();return;}
   S.busy=true;S.lookErr='';render();
   post({action:'update',phone:digits(S.lookPhone),birth:digits(S.lookBirth),
-    picks:S.picks,discounts:manualOn(),proof:str(S.proof)})
+    picks:S.picks,discounts:manualOn(),perClass:S.perClass,proof:str(S.proof)})
   .then(function(res){S.busy=false;
     if(res&&res.ok){toast('수정되었습니다');S.editing=false;S.found=null;S.lookErr='';
       render();doLookup();}
