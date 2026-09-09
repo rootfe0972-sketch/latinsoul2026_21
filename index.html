@@ -63,6 +63,7 @@ h2.sec:first-of-type{margin-top:4px;}
 .tt thead th{background:var(--ink);color:var(--y);font-weight:900;font-size:12px;}
 .tt th.tm{background:var(--y-l);font-weight:800;white-space:nowrap;font-size:11.5px;color:var(--ink);}
 .tt .cell{display:block;font-weight:700;line-height:1.35;padding:1px 0;}
+.tt .cell.shut{color:var(--bad);}
 .tt .who{display:block;font-weight:600;font-size:11px;color:var(--sub);line-height:1.3;margin-top:1px;}
 .tt .none{color:var(--dim);}
 .ttcap{font-size:12px;color:var(--sub);text-align:center;padding:7px 6px;background:var(--y-l);
@@ -90,6 +91,11 @@ h2.sec:first-of-type{margin-top:4px;}
   margin-left:6px;vertical-align:1px;background:var(--y-l2);color:var(--ink-2);}
 .tag.full{background:var(--badbg);color:var(--bad);}
 .tag.left{background:var(--okbg);color:var(--ok);}
+.tag.shut{background:var(--ink);color:#fff;}
+/* 폐강·마감은 「왜 못 고르는지」가 읽혀야 하므로 겹침·최대개수보다 진하게 둔다 */
+.opt.off.shutrow{opacity:.68;}
+.opt.dead .nm,.opt.dead .fee{text-decoration:line-through;text-decoration-thickness:1.5px;}
+.opt.dead .nm .tag{text-decoration:none;}
 
 label.f{display:block;font-size:14px;font-weight:800;margin:14px 0 5px;}
 label.f .req{color:var(--bad);margin-left:2px;}
@@ -119,6 +125,8 @@ textarea{min-height:74px;resize:vertical;}
 .total .v{font-size:26px;font-weight:900;color:var(--ink);}
 .note{font-size:12.5px;background:var(--y-l);border:1px solid var(--line2);color:var(--ink-2);
   border-radius:9px;padding:9px 11px;margin-top:9px;}
+.note.warn{background:var(--badbg);border-color:var(--bad);color:var(--bad);font-weight:700;
+  line-height:1.6;}
 .err{font-size:13.5px;color:var(--bad);background:var(--badbg);border-radius:9px;
   padding:10px 12px;margin-top:10px;font-weight:700;}
 
@@ -586,8 +594,11 @@ function shortName(c){
 /* 「클래스」 시트에서 시간표를 만든다. 세로=시간, 가로=연습실(없으면 장르) */
 function timetable(){
   var cols=[],slots={},order=[],days={};
-  var useRoom=CFG.classes.some(function(c){return !!c.room;});
-  CFG.classes.forEach(function(c){
+  /* 폐강한 수업은 그 시간·연습실을 안 쓰니 시간표에서 뺀다 */
+  var live=CFG.classes.filter(function(c){return stOf(c)!=='폐강';});
+  if(!live.length)return '';
+  var useRoom=live.some(function(c){return !!c.room;});
+  live.forEach(function(c){
     var col=useRoom?(c.room||'기타'):c.genre;
     if(cols.indexOf(col)<0)cols.push(col);
     days[c.day||'']=1;
@@ -612,7 +623,9 @@ function timetable(){
       var list=s.by[g]||[];
       h+='<td>'+(list.length
         ? list.map(function(c){
-            return '<span class="cell">'+esc(useRoom?dsp(c):shortName(c))+'</span>'+
+            var shut=(stOf(c)==='마감');
+            return '<span class="cell'+(shut?' shut':'')+'">'+esc(useRoom?dsp(c):shortName(c))+
+                   (shut?' (마감)':'')+'</span>'+
                    (c.teacher?'<span class="who">'+esc(c.teacher)+'</span>':'');
           }).join('')
         : '<span class="none">–</span>')+'</td>';
@@ -634,6 +647,32 @@ function metaOf(c){
 }
 function seatOf(k){return (CFG.seats&&CFG.seats[k])||null;}
 function dsp(c){return (c&&c.display)?c.display:((c?c.genre:'')+' '+(c?c.name:'')).trim();}
+function clsOf(k){return CFG.classes.filter(function(x){return x.key===k;})[0]||null;}
+/* 「클래스」 N열 상태 — 모집중 / 마감(인원마감) / 폐강. 정원이 차서 자동 마감된 것도 마감으로 본다 */
+function stOf(c){
+  var s=(c&&c.state)||'모집중';
+  if(s==='모집중'&&c){var seat=seatOf(c.key);if(seat&&seat.full)s='마감';}
+  return s;
+}
+/* 신청할 수 있는 수업인가. 수정 화면에서 이미 신청하신 과목은 그대로 둔다 */
+function pickable(c,edit){
+  if(stOf(c)==='모집중')return true;
+  return !!(edit&&S.found&&S.found.picks.indexOf(c.key)>=0);
+}
+/* 시간표·목록 위에 붙는 한 줄 안내 — 「클래스」 시트 상태를 그대로 읽는다 */
+function closedNotice(){
+  var shut=[],full=[];
+  sortedClasses().forEach(function(c){
+    var s=stOf(c);
+    if(s==='폐강')shut.push(esc(dsp(c)));
+    else if(s==='마감')full.push(esc(dsp(c)));
+  });
+  if(!shut.length&&!full.length)return '';
+  var t=[];
+  if(shut.length)t.push('<b>폐강</b> '+shut.join(' · ')+' — 이번 차수에는 열리지 않습니다.');
+  if(full.length)t.push('<b>인원마감</b> '+full.join(' · ')+' — 정원이 차서 신청을 받지 않습니다.');
+  return '<div class="note warn">'+t.join('<br>')+'</div>';
+}
 function bq(){return calcQuote(CFG,S.picks,manualOn(),digits(S.editing?S.lookBirth:S.birth),S.perClass);}
 function syncPerClass(){
   Object.keys(S.perClass).forEach(function(id){
@@ -649,6 +688,11 @@ function h2(n,t){return '<h2 class="sec">'+(n?'<span class="n">'+n+'</span>':'')
 function render(){
   if(S.done){$('app').innerHTML=viewDone();$('dock').innerHTML='';bindDone();return;}
   var p=period(),h='';
+  /* 고르는 중에 수업이 마감·폐강되었으면 선택에서 조용히 뺀다 (수정 화면은 그대로 둔다) */
+  if(S.tab==='apply'&&S.picks.length){
+    var keep=S.picks.filter(function(k){var c=clsOf(k);return c&&stOf(c)==='모집중';});
+    if(keep.length!==S.picks.length){S.picks=keep;syncPerClass();}
+  }
   h+='<div class="privacy-top"><span aria-hidden="true">🔒</span><span>'+
      esc(CFG.privacyShort||'입력하신 정보는 수강 신청 확인과 입금 대조에만 사용합니다.')+'</span></div>';
   h+='<div class="tabs" role="tablist">'+
@@ -667,13 +711,17 @@ function render(){
 }
 function viewGate(t,d){
   return '<div class="box">'+h2('',t)+'<p class="hint">'+d+'</p></div>'+
-    h2('','수업 시간표')+timetable()+h2('','강습비')+classTable();
+    h2('','수업 시간표')+timetable()+closedNotice()+h2('','강습비')+classTable();
 }
 function classTable(){
   var h='';
   sortedClasses().forEach(function(c){
-    h+='<div class="opt" style="cursor:default"><span class="body">'+
-      '<span class="nm">'+esc(dsp(c))+'</span>'+
+    var st=stOf(c);
+    var tag=st==='폐강'?'<span class="tag shut">폐강</span>':
+            st==='마감'?'<span class="tag full">인원마감</span>':'';
+    h+='<div class="opt'+(st!=='모집중'?' off':'')+(st==='폐강'?' dead':'')+
+      '" style="cursor:default"><span class="body">'+
+      '<span class="nm">'+esc(dsp(c))+tag+'</span>'+
       '<span class="meta">'+esc(metaOf(c))+'</span></span>'+
       '<span class="fee">'+won(c.fee)+'</span></div>';
   });
@@ -684,6 +732,7 @@ function viewApply(){
   h+=h2(1,'수업 선택');
   h+='<p class="hint">최대 '+(CFG.maxSubjects||3)+'개까지 · 시간이 겹치는 수업은 자동으로 잠깁니다.</p>';
   h+=timetable();
+  h+=closedNotice();
   h+=classPicker(false);
 
   h+=h2(2,'신청자 정보');
@@ -727,17 +776,20 @@ function viewApply(){
 function classPicker(edit){
   var h='';
   sortedClasses().forEach(function(c){
-    var on=S.picks.indexOf(c.key)>=0, seat=seatOf(c.key);
+    var on=S.picks.indexOf(c.key)>=0, seat=seatOf(c.key), st=stOf(c);
     var mine=edit&&S.found&&S.found.picks.indexOf(c.key)>=0;
-    var full=!!(seat&&seat.full)&&!on&&!mine;
-    var clash=!on&&S.picks.some(function(k){
-      return overlaps(c,CFG.classes.filter(function(x){return x.key===k;})[0]);});
+    var shut=(st!=='모집중')&&!on&&!pickable(c,edit);
+    var clash=!on&&S.picks.some(function(k){return overlaps(c,clsOf(k));});
     var over=!on&&S.picks.length>=(CFG.maxSubjects||3);
-    var off=full||clash||over;
-    var tag=full?'<span class="tag full">마감</span>':clash?'<span class="tag">시간 겹침</span>':
+    var off=shut||clash||over;
+    /* 상태 배지는 이미 신청하신 분에게도 보여준다 — 사실이니까 */
+    var tag=st==='폐강'?'<span class="tag shut">폐강</span>':
+      st==='마감'?'<span class="tag full">인원마감</span>':
+      clash?'<span class="tag">시간 겹침</span>':
       over?'<span class="tag">최대 개수</span>':
       (seat&&seat.capacity!=null&&seat.left<=5)?'<span class="tag left">'+seat.left+'자리</span>':'';
-    h+='<label class="opt'+(on?' on':'')+(off?' off':'')+'">'+
+    h+='<label class="opt'+(on?' on':'')+(off?' off':'')+
+      (st!=='모집중'?' shutrow':'')+(st==='폐강'?' dead':'')+'">'+
       '<input type="checkbox" data-key="'+esc(c.key)+'"'+(on?' checked':'')+(off?' disabled':'')+'>'+
       '<span class="body"><span class="nm">'+esc(dsp(c))+tag+'</span>'+
       '<span class="meta">'+esc(metaOf(c))+'</span></span>'+
@@ -844,6 +896,12 @@ function viewFound(){
   h+='<div class="hr"></div><div class="line"><span>수업 합계</span><b>'+won(o.subtotal)+'</b></div>';
   if(o.discountTotal)h+='<div class="line disc"><span>할인</span><b>-'+won(o.discountTotal)+'</b></div>';
   h+='<div class="total"><span class="l">최종 금액</span><span class="v">'+won(o.total)+'</span></div></div>';
+  /* 이미 신청하신 수업이 그 뒤에 폐강됐다면 알려드린다 (금액은 손대지 않는다) */
+  var gone=(o.picks||[]).map(clsOf).filter(function(c){return c&&stOf(c)==='폐강';});
+  if(gone.length&&o.status!=='취소')
+    h+='<div class="note warn"><b>'+gone.map(function(c){return esc(dsp(c));}).join(' · ')+
+       '</b> 은(는) 폐강되었습니다.<br>'+
+       esc(CFG.contact||'운영진에게 문의해주세요.')+'</div>';
   if(o.status==='취소')h+='<div class="note">취소된 신청입니다.</div>';
   else if(o.paid)h+='<div class="note">입금이 확인되어 화면에서는 수정·취소할 수 없습니다. 운영진에게 문의해주세요.</div>';
   else if(!canEdit())h+='<div class="note">수정·취소 기간이 지났습니다. 운영진에게 문의해주세요.</div>';
