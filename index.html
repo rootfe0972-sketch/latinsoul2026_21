@@ -290,7 +290,7 @@ function post(p){return fetch(API,{method:'POST',mode:'cors',redirect:'follow',
 function overlaps(a,b){if(!a||!b)return false;if(a.day&&b.day&&a.day!==b.day)return false;
   if(a.start==null||b.start==null)return false;return a.start<b.end&&b.start<a.end;}
 /* =================================================================
- * 금액 계산 v4 — 21차수 정책
+ * 금액 계산 v4 — 정책은 전부 「할인」 시트에서 읽는다 (코드에 금액·차수 없음)
  *
  * 1단계  과목별로 할인을 붙인다 (사전신청·재수강·수업후기·패키지·1+1)
  * 2단계  남은 금액에 비율 할인을 붙인다 (2030 30%)
@@ -306,6 +306,9 @@ function overlaps(a,b){if(!a||!b)return false;if(a.day&&b.day&&a.day!==b.day)ret
  *                「재수강:과목」 = 그 할인이 붙은 과목에만 이 할인이 안 붙음
  * ================================================================= */
 
+/* 패키지 할인 한 줄의 id. 시트가 아니라 코드가 만드는 이름이라 고정이다.
+   「할인」 시트의 중복불가에 「패키지」 라고 적으면 이것을 가리킨다. */
+var PKG_ID = '패키지';
 
 /** 이 할인이 이 과목에 해당하는가 */
 function hitsClass(targets, c) {
@@ -418,7 +421,7 @@ function calcQuote(cfg, picks, manualIds, birth, perClass) {
 
   if (bestPkg && bestPkg.discount > 0) {
     var pkgItems = items.filter(function (c) { return bestPkg.need.indexOf(c.key) >= 0; });
-    push('패키지', bestPkg.label, spread(bestPkg.discount, pkgItems), { pkgKeys: bestPkg.need });
+    push(PKG_ID, bestPkg.label, spread(bestPkg.discount, pkgItems), { pkgKeys: bestPkg.need });
   }
 
   var stage2 = [], freeDefs = [];   // 잔액정률은 따로 모은다
@@ -474,6 +477,8 @@ function calcQuote(cfg, picks, manualIds, birth, perClass) {
   var dead = {};
 
   // (가) 전체 배제 — 금액이 큰 쪽만 남긴다 (같으면 ID 순으로 고정)
+  //      단 패키지는 예외다. 패키지가 성립하면 패키지로 간다 — 금액이 같거나
+  //      조금 적더라도. 「패키지에는 재수강이 안 붙는다」가 운영 규칙이기 때문.
   cand.forEach(function (x) {
     if (!x.def || !x.def.exclusive) return;
     x.def.exclusive.forEach(function (ex) {
@@ -481,7 +486,9 @@ function calcQuote(cfg, picks, manualIds, birth, perClass) {
       var other = byId[ex.id];
       if (!other) return;
       var loser;
-      if (other.amount > x.amount) loser = x.id;
+      if (other.id === PKG_ID) loser = x.id;
+      else if (x.id === PKG_ID) loser = other.id;
+      else if (other.amount > x.amount) loser = x.id;
       else if (other.amount < x.amount) loser = other.id;
       else loser = (x.id < other.id) ? other.id : x.id;
       dead[loser] = true;
@@ -797,9 +804,29 @@ function classPicker(edit){
   });
   return h;
 }
+/* 지금 고른 과목으로 패키지가 성립하는가 */
+function pkgOn(){
+  var chosen={}; S.picks.forEach(function(k){chosen[k]=true;});
+  return (CFG.packages||[]).some(function(p){
+    return p.need.every(function(k){return chosen[k];});
+  });
+}
+/* 패키지와 함께 쓸 수 없는 할인인가 — 켜봐야 안 붙으니 아예 안 보여준다 */
+function pkgBlocks(d){
+  return pkgOn() && (d.exclusive||[]).some(function(ex){
+    return ex.id===PKG_ID && ex.scope!=='과목';
+  });
+}
+/* 사전신청 기간이 열려 있는가 */
+function preOpen(){
+  return CFG.preDeadline ? (now() <= new Date(CFG.preDeadline)) : false;
+}
 function discPicker(ml){
-  var h='';
+  var h='', hidden=[];
   ml.forEach(function(d){
+    /* 사전신청 할인은 기간이 끝나면 켜도 안 붙는다 */
+    if(d.mode==='과목당사전할인' && !preOpen())return;
+    if(pkgBlocks(d)){ hidden.push(d.label); return; }
     if(d.mode==='과목선택정률'){
       var target=S.picks.map(function(k){
         return CFG.classes.filter(function(x){return x.key===k;})[0];
@@ -827,7 +854,13 @@ function discPicker(ml){
       (d.needProof?'<span class="tag">확인 필요</span>':'')+'</span>'+
       (d.note?'<span class="meta">'+esc(d.note)+'</span>':'')+'</span></label>';
   });
+  if(hidden.length)
+    h+='<div class="note">패키지 할인이 적용되어 <b>'+hidden.map(esc).join(' · ')+
+       '</b> 은(는) 함께 쓸 수 없습니다.</div>';
   var need=CFG.discounts.some(function(d){
+    /* 화면에서 숨긴 할인 때문에 증빙을 요구하지 않는다 */
+    if(d.mode==='과목당사전할인'&&!preOpen())return false;
+    if(pkgBlocks(d))return false;
     if(d.mode==='과목선택정률')return d.needProof&&(S.perClass[d.id]||[]).length>0;
     return d.needProof&&S.manual[d.id];
   });
