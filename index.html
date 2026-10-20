@@ -763,11 +763,7 @@ function viewApply(){
     h+='<p class="hint">해당하시는 것만 켜주세요. 운영진이 확인합니다.</p>'+discPicker(ml);}
   if(CFG.discountNote)h+='<div class="note">'+esc(CFG.discountNote)+'</div>';
 
-  var q=bq();
-  h+=h2(4,'금액')+quoteBox(q);
-  var autos=CFG.discounts.filter(function(d){return d.auto&&q.ok&&q.appliedIds.indexOf(d.id)>=0;});
-  if(autos.length)h+='<div class="note">자동으로 적용된 할인: '+
-    autos.map(function(d){return esc(d.label);}).join(', ')+'</div>';
+  h+=h2(4,'금액')+'<div id="quoteArea">'+quoteArea()+'</div>';
 
   h+=h2(5,'개인정보 동의');
   h+='<label class="agree'+(S.agreed?' on':'')+'"><input type="checkbox" id="fAgree"'+
@@ -820,6 +816,19 @@ function pkgBlocks(d){
 /* 사전신청 기간이 열려 있는가 */
 function preOpen(){
   return CFG.preDeadline ? (now() <= new Date(CFG.preDeadline)) : false;
+}
+/* 「4 금액」 칸 — 생년월일을 고치면 이 부분만 다시 그린다.
+   render() 를 통째로 부르면 입력 중인 칸에서 커서가 튀기 때문. */
+function quoteArea(){
+  var q=bq(), h=quoteBox(q);
+  var autos=CFG.discounts.filter(function(d){return d.auto&&q.ok&&q.appliedIds.indexOf(d.id)>=0;});
+  if(autos.length)h+='<div class="note">자동으로 적용된 할인: '+
+    autos.map(function(d){return esc(d.label);}).join(', ')+'</div>';
+  return h;
+}
+function refreshQuote(){
+  var el=$('quoteArea'); if(el)el.innerHTML=quoteArea();
+  var dk=$('dock');      if(dk&&S.tab==='apply'&&!S.done&&period()==='open')dk.innerHTML=viewDock();
 }
 function discPicker(ml){
   var h='', hidden=[];
@@ -1008,7 +1017,7 @@ function bind(){
   var nm=$('fName'); if(nm)nm.oninput=function(){S.realname=nm.value;
     if(!S.payerTouched){S.payer=nm.value;var p=$('fPayer');if(p)p.value=nm.value;}};
   var py=$('fPayer'); if(py)py.oninput=function(){S.payer=py.value;S.payerTouched=true;};
-  fmt('fPhone','phone',hyphenPhone); fmt('fBirth','birth',hyphenBirth);
+  fmt('fPhone','phone',hyphenPhone); fmt('fBirth','birth',hyphenBirth,true);
   fmt('lPhone','lookPhone',hyphenPhone); fmt('lBirth','lookBirth',hyphenBirth);
   document.querySelectorAll('input[name=gender]').forEach(function(el){
     el.onchange=function(){S.gender=el.value;};});
@@ -1032,10 +1041,11 @@ function cp(t,msg){if(!t)return;
   else toast(t);}
 function on(id,fn){var el=$(id);if(el)el.onclick=fn;}
 function keep(id,key){var el=$(id);if(el)el.oninput=function(){S[key]=el.value;};}
-function fmt(id,key,f){var el=$(id);if(!el)return;
+function fmt(id,key,f,redraw){var el=$(id);if(!el)return;
   el.oninput=function(){var p=el.selectionStart,before=el.value;
     el.value=f(el.value);S[key]=el.value;
-    if(p===before.length)el.setSelectionRange(el.value.length,el.value.length);};}
+    if(p===before.length)el.setSelectionRange(el.value.length,el.value.length);
+    if(redraw)refreshQuote();};}   // 생년월일처럼 금액이 달라지는 칸만 true
 function resetAll(){S.done=null;S.found=null;S.editing=false;S.tab='apply';
   S.picks=[];S.manual={};S.perClass={};S.proof='';S.agreed=false;S.error='';S.fieldErr={};
   S.nickname='';S.realname='';S.phone='';S.birth='';S.gender='';S.payer='';
